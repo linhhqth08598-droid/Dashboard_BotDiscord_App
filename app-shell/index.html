@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discord Bot Dashboard</title>
+    <style>
+      :root { color-scheme: dark light; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; height: 100vh; display: grid; place-items: center;
+        background: #14161b; color: #f3f4f8;
+        font: 15px/1.5 'Segoe UI', system-ui, sans-serif;
+      }
+      @media (prefers-color-scheme: light) { body { background: #f1f3f8; color: #10131a; } .sub { color: #4d566a !important; } }
+      .box { text-align: center; max-width: 420px; padding: 24px; }
+      .logo {
+        width: 72px; height: 72px; margin: 0 auto 20px; border-radius: 22px;
+        background: linear-gradient(135deg, #5865f2, #7b86ff);
+        display: grid; place-items: center; font-size: 34px; font-weight: 800; color: #fff;
+        box-shadow: 0 10px 30px -10px rgb(88 101 242 / .7);
+      }
+      h1 { margin: 0 0 6px; font-size: 22px; }
+      .sub { margin: 0; color: #9aa1b2; min-height: 3em; }
+      .spinner {
+        width: 28px; height: 28px; margin: 22px auto 0; border-radius: 50%;
+        border: 3px solid rgb(128 128 128 / .3); border-top-color: #5865f2;
+        animation: spin .8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      button {
+        margin-top: 18px; padding: 9px 18px; border: 0; border-radius: 10px;
+        background: #5865f2; color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+      }
+      button:hover { background: #4752c4; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <div class="logo">D</div>
+      <h1>Bot Dashboard</h1>
+      <p class="sub" id="msg">Đang kết nối tới dashboard…</p>
+      <div class="spinner" id="spin"></div>
+      <button id="retry" class="hidden">Thử lại</button>
+    </div>
+
+    <script>
+      // Địa chỉ dashboard web. Đổi ở đây nếu bạn đổi tên miền.
+      const DASHBOARD_URL = 'https://dashboard-botdiscord.onrender.com';
+
+      const msg = document.getElementById('msg');
+      const spin = document.getElementById('spin');
+      const retry = document.getElementById('retry');
+      let attempt = 0;
+      let stopped = false;
+
+      async function ping() {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 10000);
+        try {
+          // no-cors: chỉ cần biết máy chủ có trả lời hay không
+          await fetch(DASHBOARD_URL + '/?_=' + Date.now(), { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal });
+          return true;
+        } catch {
+          return false;
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      async function connect() {
+        stopped = false;
+        attempt = 0;
+        retry.classList.add('hidden');
+        spin.classList.remove('hidden');
+        msg.textContent = 'Đang kết nối tới dashboard…';
+
+        while (!stopped) {
+          attempt++;
+          if (await ping()) {
+            msg.textContent = 'Đã kết nối, đang mở…';
+            location.replace(DASHBOARD_URL);
+            return;
+          }
+          if (attempt >= 3) {
+            msg.textContent = 'Máy chủ Render có thể đang khởi động lại (mất tới ~1 phút). Vui lòng đợi…';
+          }
+          if (attempt >= 20) {
+            stopped = true;
+            spin.classList.add('hidden');
+            msg.textContent = 'Không kết nối được. Hãy kiểm tra mạng hoặc trạng thái máy chủ trên Render.';
+            retry.classList.remove('hidden');
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
+
+      retry.addEventListener('click', connect);
+      connect();
+    </script>
+  </body>
+</html>
