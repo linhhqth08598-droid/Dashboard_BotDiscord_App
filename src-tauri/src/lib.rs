@@ -1,7 +1,12 @@
-use tauri::{WebviewUrl, WebviewWindowBuilder, webview::NewWindowResponse};
+use tauri::{WebviewUrl, WebviewWindowBuilder};
+#[cfg(desktop)]
+use tauri::webview::NewWindowResponse;
+#[cfg(desktop)]
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+#[cfg(desktop)]
 use tauri_plugin_updater::UpdaterExt;
 
+#[cfg(desktop)]
 const FULLSCREEN_JS: &str = r#"
 if (window.top === window) {
   window.addEventListener('keydown', function (e) {
@@ -13,7 +18,8 @@ if (window.top === window) {
 }
 "#;
 
-/// Mở một địa chỉ web bằng trình duyệt mặc định của hệ điều hành.
+/// Mở một địa chỉ web bằng trình duyệt mặc định của hệ điều hành (chỉ máy tính).
+#[cfg(desktop)]
 fn open_in_browser(url: &str) {
     use std::process::Command;
 
@@ -33,7 +39,9 @@ fn open_in_browser(url: &str) {
     }
 }
 
-/// Kiểm tra bản mới khi mở app; nếu có thì hỏi người dùng rồi tải và cài.
+/// Kiểm tra bản mới khi mở app; nếu có thì hỏi người dùng rồi tải và cài (chỉ máy tính;
+/// bản Android không có updater, người dùng tải APK mới về cài đè).
+#[cfg(desktop)]
 fn check_for_updates(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let updater = match app.updater() {
@@ -78,11 +86,21 @@ fn check_for_updates(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Plugin chỉ có trên máy tính (Windows/macOS/Linux).
+    #[cfg(desktop)]
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .setup(|app| {
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()));
+
+            // Kích thước cửa sổ, phím F11 và chặn cửa sổ mới: chỉ áp dụng trên máy tính.
+            #[cfg(desktop)]
+            let window = window
                 .title("Discord Bot Dashboard")
                 .inner_size(1360.0, 860.0)
                 .min_inner_size(900.0, 600.0)
@@ -92,11 +110,15 @@ pub fn run() {
                         open_in_browser(url.as_str());
                     }
                     NewWindowResponse::Deny
-                })
-                .build()?;
+                });
 
-            if !cfg!(debug_assertions) {
-                check_for_updates(app.handle().clone());
+            window.build()?;
+
+            #[cfg(desktop)]
+            {
+                if !cfg!(debug_assertions) {
+                    check_for_updates(app.handle().clone());
+                }
             }
             Ok(())
         })
