@@ -26,7 +26,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGNkNGMEZDRkUwRDQ0RjIKUldUeVJBMysvUEJzVDZLV3RsWkRrMXRmWUNWUUZRU1NDTEtoeXpLS3UzbmMxcVBqcHYyTXRVbEkK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDBDQjZBNDJBNTM4MjQ2Q0YKUldUUFJvSlRLcVMyRE9SQTF6d3lkRS9OSnpRRkFVS3BWZk1JaVFXcTNBd0FrUm1XRnJuaWc1ekIK",
       "endpoints": [
         "https://github.com/linhhqth08598-droid/Dashboard_BotDiscord_App/releases/latest/download/latest.json"
       ],
