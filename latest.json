@@ -1,0 +1,11 @@
+{
+  "version": "0.1.1",
+  "notes": "Phiên bản update mới nhất của ứng dụng Discord Bot Dashboard. Cập nhật này bao gồm các cải tiến về hiệu suất, sửa lỗi và bổ sung tính năng mới.",
+  "pub_date": "2026-11-10T00:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHJzaWduIGVuY3J5cHRlZCBzZWNyZXQga2V5ClJXUlRZMEl5VVlZdHhpemxvOGJWeS9FK1diUEtOcnhvbVYxSE02bkdqajg1VHlVYVR4VUFBQkFBQUFBQUFBQUFBQUlBQUFBQUtoVHE0bDZwak84Uy81TFBKQ3FtWGcrdlp0S0FFNXhYNVdsKzFGbUg2QVVEcHFPRjl2dU4vYzl6TU9waTg5ZkpYOVNNencwS3FGcTVOVkZoNXVSYXcwUjF3eWpPY0V2MUJxa0VIWnJISngxK1NmclBlUUNmZzJPU1F5ZWVrUDRXUTlYbGpwRDNJN1k9Cg==",
+      "url": "https://github.com/linhhqth08598-droid/Dashboard_BotDiscord_App/releases/download/v0.1.1/Discord.Bot.Dashboard_0.1.1_x64-setup.exe"
+    }
+  }
+}
