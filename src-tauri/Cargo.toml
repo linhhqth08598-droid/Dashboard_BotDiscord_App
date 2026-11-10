@@ -27,3 +27,10 @@ tauri-plugin-dialog = "2"
 [features]
 # `tauri dev` chạy cargo với --no-default-features; `tauri build` tự bật feature này.
 custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
