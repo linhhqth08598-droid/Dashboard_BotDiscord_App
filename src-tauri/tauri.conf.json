@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Discord Bot Dashboard",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "identifier": "com.tauri.admin",
   "build": {
     "frontendDist": "../app-shell"
@@ -22,7 +22,12 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      }
+    }
   },
   "plugins": {
     "updater": {
