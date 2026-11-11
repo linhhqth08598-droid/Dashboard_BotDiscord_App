@@ -83,11 +83,25 @@ jobs:
 
       # onrender.com đang bị Google Safe Browsing gắn cờ nhầm -> WebView Android hiện trang đỏ.
       # Tắt Safe Browsing cho WebView của riêng app này (app chỉ mở đúng dashboard của bạn).
+      # Dùng Python vì thẻ <application ...> trải dài nhiều dòng, sed không khớp được.
       - name: Tắt Safe Browsing trong WebView
         run: |
-          M=src-tauri/gen/android/app/src/main/AndroidManifest.xml
-          sed -i '0,/<application[^>]*>/s##&\n        <meta-data android:name="android.webkit.WebView.EnableSafeBrowsing" android:value="false" />#' "$M"
-          grep -n "EnableSafeBrowsing" "$M"
+          python3 - <<'PY'
+          import re
+          p = 'src-tauri/gen/android/app/src/main/AndroidManifest.xml'
+          s = open(p, encoding='utf-8').read()
+          tag = '<meta-data android:name="android.webkit.WebView.EnableSafeBrowsing" android:value="false" />'
+          m = re.search(r'<application\b[^>]*>', s)
+          assert m, 'Không tìm thấy thẻ <application>'
+          if 'EnableSafeBrowsing' not in s:
+              s = s[:m.end()] + '\n        ' + tag + s[m.end():]
+              open(p, 'w', encoding='utf-8').write(s)
+          PY
+          grep -n "EnableSafeBrowsing" src-tauri/gen/android/app/src/main/AndroidManifest.xml
+
+      # Đảm bảo launcher dùng icon con chim thay vì icon mặc định của Tauri.
+      - name: Chép icon Android
+        run: cp -r src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/
 
       - name: Build APK (chưa ký)
         run: npx tauri android build --apk --target aarch64
