@@ -81,6 +81,14 @@ jobs:
       - name: Khởi tạo project Android
         run: npx tauri android init
 
+      # onrender.com đang bị Google Safe Browsing gắn cờ nhầm -> WebView Android hiện trang đỏ.
+      # Tắt Safe Browsing cho WebView của riêng app này (app chỉ mở đúng dashboard của bạn).
+      - name: Tắt Safe Browsing trong WebView
+        run: |
+          M=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          sed -i '0,/<application[^>]*>/s##&\n        <meta-data android:name="android.webkit.WebView.EnableSafeBrowsing" android:value="false" />#' "$M"
+          grep -n "EnableSafeBrowsing" "$M"
+
       - name: Build APK (chưa ký)
         run: npx tauri android build --apk --target aarch64
 
