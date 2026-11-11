@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Discord Bot Dashboard",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "identifier": "com.tauri.admin",
   "build": {
     "frontendDist": "../app-shell"
@@ -26,7 +26,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzNzA2OTRGNjE5RkJENEQKUldSTnZaOWhUMmx3czdYTThVZGdrTGNOMm1YV2xVTzI4NUxhRTFIYUJiMjhOZHFyZFFxZElzWnYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFFQjVDODNCNDJEOTRCMkUKUldRdVM5bENPOGkxSGlQMFc2dTZxZDVvSFd5WFRjRFR4Qm9zUityMWtCNjloaC9tRGh5cUh0VDcK",
       "endpoints": [
         "https://github.com/linhhqth08598-droid/Dashboard_BotDiscord_App/releases/latest/download/latest.json"
       ],
