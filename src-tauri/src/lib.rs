@@ -17,29 +17,7 @@ if (window.top === window) {
 }
 "#;
 
-/// Mở một địa chỉ web bằng trình duyệt mặc định của hệ điều hành (chỉ máy tính).
-#[cfg(desktop)]
-fn open_in_browser(url: &str) {
-    use std::process::Command;
-
-    #[cfg(target_os = "windows")]
-    let result = Command::new("rundll32")
-        .args(["url.dll,FileProtocolHandler", url])
-        .spawn();
-
-    #[cfg(target_os = "macos")]
-    let result = Command::new("open").arg(url).spawn();
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let result = Command::new("xdg-open").arg(url).spawn();
-
-    if let Err(e) = result {
-        eprintln!("Không mở được trình duyệt: {e}");
-    }
-}
-
 /// Địa chỉ (host) của dashboard: chỉ trang này và trang đăng nhập Discord mới được mở bên trong app.
-#[cfg(mobile)]
 const DASHBOARD_HOST: &str = "dashboard-botdiscord.onrender.com";
 
 /// Android: WebView của app không tự mở được liên kết `target="_blank"` / `window.open(...)`
@@ -68,7 +46,6 @@ const MOBILE_LINKS_JS: &str = r#"
 /// - Dashboard, và trang nội bộ của app: có.
 /// - Discord: có cho đăng nhập (OAuth/login), nhưng link MỜI BOT (có scope=bot, permissions=, guild_id=) thì mở ngoài.
 /// - Mọi trang khác (website của bot, GitHub...): mở bằng trình duyệt.
-#[cfg(mobile)]
 fn allow_in_app(url: &tauri::Url) -> bool {
     match url.scheme() {
         "tauri" | "about" | "data" | "blob" | "file" => return true,
@@ -91,8 +68,7 @@ fn allow_in_app(url: &tauri::Url) -> bool {
     false
 }
 
-/// Mở địa chỉ web bằng trình duyệt mặc định của điện thoại (Android).
-#[cfg(mobile)]
+/// Mở địa chỉ web bằng trình duyệt mặc định của máy (Windows / Android).
 fn open_external(app: &tauri::AppHandle, url: &tauri::Url) {
     if !matches!(url.scheme(), "http" | "https" | "mailto" | "tel") {
         return;
@@ -266,35 +242,36 @@ pub fn run() {
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .initialization_script(app_info_js.as_str());
 
+            // Liên kết ngoài (mời bot, website của bot, Discord hỗ trợ...) mở bằng trình duyệt mặc định,
+            // cả trên máy tính lẫn Android. Trang dashboard / đăng nhập Discord vẫn mở trong app.
+            let nav_handle = app.handle().clone();
+            let window = window.on_navigation(move |url| {
+                if allow_in_app(url) {
+                    true
+                } else {
+                    open_external(&nav_handle, url);
+                    false
+                }
+            });
+
             // Kích thước cửa sổ, phím F11 và chặn cửa sổ mới: chỉ áp dụng trên máy tính.
             #[cfg(desktop)]
-            let window = window
-                .title("Discord Bot Dashboard")
-                .inner_size(1360.0, 860.0)
-                .min_inner_size(900.0, 600.0)
-                .initialization_script(FULLSCREEN_JS)
-                .on_new_window(|url, _features| {
-                    if matches!(url.scheme(), "http" | "https") {
-                        open_in_browser(url.as_str());
-                    }
-                    NewWindowResponse::Deny
-                });
-
-            // Android: liên kết ngoài (mời bot, website của bot...) mở bằng trình duyệt điện thoại.
-            #[cfg(mobile)]
             let window = {
-                let handle = app.handle().clone();
+                let new_win_handle = app.handle().clone();
                 window
-                    .initialization_script(MOBILE_LINKS_JS)
-                    .on_navigation(move |url| {
-                        if allow_in_app(url) {
-                            true
-                        } else {
-                            open_external(&handle, url);
-                            false
-                        }
+                    .title("Discord Bot Dashboard")
+                    .inner_size(1360.0, 860.0)
+                    .min_inner_size(900.0, 600.0)
+                    .initialization_script(FULLSCREEN_JS)
+                    .on_new_window(move |url, _features| {
+                        open_external(&new_win_handle, &url);
+                        NewWindowResponse::Deny
                     })
             };
+
+            // Android: tự đổi target="_blank" / window.open thành điều hướng thường để on_navigation ở trên bắt được.
+            #[cfg(mobile)]
+            let window = window.initialization_script(MOBILE_LINKS_JS);
 
             window.build()?;
 
