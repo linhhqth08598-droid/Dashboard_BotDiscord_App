@@ -38,6 +38,70 @@ fn open_in_browser(url: &str) {
     }
 }
 
+/// Địa chỉ (host) của dashboard: chỉ trang này và trang đăng nhập Discord mới được mở bên trong app.
+#[cfg(mobile)]
+const DASHBOARD_HOST: &str = "dashboard-botdiscord.onrender.com";
+
+/// Android: WebView của app không tự mở được liên kết `target="_blank"` / `window.open(...)`
+/// (nút "Thêm Vào Server", nút website của bot...). Script này đổi chúng thành điều hướng thường,
+/// rồi `on_navigation` bên dưới chặn và mở bằng trình duyệt của điện thoại.
+#[cfg(mobile)]
+const MOBILE_LINKS_JS: &str = r#"
+(function () {
+  if (window.top !== window || window.__dashLinks) return;
+  window.__dashLinks = true;
+  function go(u) {
+    try { window.location.assign(new URL(String(u), window.location.href).href); } catch (e) {}
+  }
+  window.open = function (u) { if (u) go(u); return null; };
+  document.addEventListener('click', function (e) {
+    var el = e.target;
+    var a = el && el.closest ? el.closest('a[href]') : null;
+    if (!a) return;
+    var t = (a.getAttribute('target') || '').toLowerCase();
+    if (t === '_blank' || t === '_new') { e.preventDefault(); go(a.href); }
+  }, true);
+})();
+"#;
+
+/// Có cho trang này tải ngay trong app không?
+/// - Dashboard, và trang nội bộ của app: có.
+/// - Discord: có cho đăng nhập (OAuth/login), nhưng link MỜI BOT (có scope=bot, permissions=, guild_id=) thì mở ngoài.
+/// - Mọi trang khác (website của bot, GitHub...): mở bằng trình duyệt.
+#[cfg(mobile)]
+fn allow_in_app(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "tauri" | "about" | "data" | "blob" | "file" => return true,
+        "http" | "https" => {}
+        _ => return false,
+    }
+    let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+    if host == DASHBOARD_HOST || host == "tauri.localhost" || host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    let is_discord = host == "discord.com"
+        || host.ends_with(".discord.com")
+        || host == "discordapp.com"
+        || host.ends_with(".discordapp.com");
+    if is_discord {
+        let q = url.query().unwrap_or("").to_ascii_lowercase();
+        let is_invite = q.contains("scope=bot") || q.contains("permissions=") || q.contains("guild_id=");
+        return !is_invite;
+    }
+    false
+}
+
+/// Mở địa chỉ web bằng trình duyệt mặc định của điện thoại (Android).
+#[cfg(mobile)]
+fn open_external(app: &tauri::AppHandle, url: &tauri::Url) {
+    use tauri_plugin_opener::OpenerExt;
+    if matches!(url.scheme(), "http" | "https" | "mailto" | "tel") {
+        if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
+            eprintln!("Không mở được liên kết: {e}");
+        }
+    }
+}
+
 /// Kiểm tra bản mới khi mở app; nếu có thì hỏi người dùng rồi tải và cài (chỉ máy tính;
 /// bản Android xem check_for_updates_mobile).
 #[cfg(desktop)]
@@ -199,6 +263,22 @@ pub fn run() {
                     }
                     NewWindowResponse::Deny
                 });
+
+            // Android: liên kết ngoài (mời bot, website của bot...) mở bằng trình duyệt điện thoại.
+            #[cfg(mobile)]
+            let window = {
+                let handle = app.handle().clone();
+                window
+                    .initialization_script(MOBILE_LINKS_JS)
+                    .on_navigation(move |url| {
+                        if allow_in_app(url) {
+                            true
+                        } else {
+                            open_external(&handle, url);
+                            false
+                        }
+                    })
+            };
 
             window.build()?;
 

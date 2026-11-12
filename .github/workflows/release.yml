@@ -99,6 +99,68 @@ jobs:
           PY
           grep -n "EnableSafeBrowsing" src-tauri/gen/android/app/src/main/AndroidManifest.xml
 
+      # Toàn màn hình: ẩn thanh trạng thái (giờ, wifi, pin...) và thanh điều hướng ở dưới.
+      # Vuốt từ mép màn hình để tạm hiện lại; vài giây sau tự ẩn. Viết lại MainActivity.kt do `tauri android init` tạo ra.
+      - name: Ẩn thanh hệ thống (toàn màn hình)
+        run: |
+          python3 - <<'PY'
+          import glob, re
+          files = glob.glob('src-tauri/gen/android/app/src/main/java/**/MainActivity.kt', recursive=True)
+          assert files, 'Không tìm thấy MainActivity.kt'
+          p = files[0]
+          old = open(p, encoding='utf-8').read()
+          pkg = re.search(r'^package\s+([\w.]+)', old, re.M)
+          assert pkg, 'Không đọc được package'
+          e2e = 'enableEdgeToEdge' in old
+          code = """package __PKG__
+
+          import android.os.Build
+          import android.os.Bundle
+          import android.view.WindowManager
+          __IMPORT_E2E__
+          import androidx.core.view.WindowCompat
+          import androidx.core.view.WindowInsetsCompat
+          import androidx.core.view.WindowInsetsControllerCompat
+
+          class MainActivity : TauriActivity() {
+            override fun onCreate(savedInstanceState: Bundle?) {
+              __CALL_E2E__
+              super.onCreate(savedInstanceState)
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val lp = window.attributes
+                lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                window.attributes = lp
+              }
+              hideSystemBars()
+            }
+
+            override fun onWindowFocusChanged(hasFocus: Boolean) {
+              super.onWindowFocusChanged(hasFocus)
+              if (hasFocus) hideSystemBars()
+            }
+
+            private fun hideSystemBars() {
+              val controller = WindowCompat.getInsetsController(window, window.decorView)
+              controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+              controller.hide(WindowInsetsCompat.Type.systemBars())
+            }
+          }
+          """
+          import textwrap
+          code = textwrap.dedent(code).replace('__PKG__', pkg.group(1))
+          lines = []
+          for ln in code.split('\n'):
+              if ln.strip() == '__IMPORT_E2E__':
+                  if e2e: lines.append('import androidx.activity.enableEdgeToEdge')
+              elif ln.strip() == '__CALL_E2E__':
+                  if e2e: lines.append('    enableEdgeToEdge()')
+              else:
+                  lines.append(ln)
+          code = '\n'.join(lines)
+          open(p, 'w', encoding='utf-8').write(code)
+          PY
+          cat src-tauri/gen/android/app/src/main/java/*/*/MainActivity.kt 2>/dev/null || find src-tauri/gen/android -name MainActivity.kt -exec cat {} \;
+
       # Đảm bảo launcher dùng icon con chim thay vì icon mặc định của Tauri.
       - name: Chép icon Android
         run: cp -r src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/
