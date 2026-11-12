@@ -94,12 +94,19 @@ fn allow_in_app(url: &tauri::Url) -> bool {
 /// Mở địa chỉ web bằng trình duyệt mặc định của điện thoại (Android).
 #[cfg(mobile)]
 fn open_external(app: &tauri::AppHandle, url: &tauri::Url) {
-    use tauri_plugin_opener::OpenerExt;
-    if matches!(url.scheme(), "http" | "https" | "mailto" | "tel") {
+    if !matches!(url.scheme(), "http" | "https" | "mailto" | "tel") {
+        return;
+    }
+    // on_navigation chạy trên luồng giao diện của WebView; gọi plugin opener (cần chờ phía Android trả lời)
+    // ngay tại đây có thể bị treo/không mở được => chuyển sang một luồng riêng.
+    let app = app.clone();
+    let url = url.to_string();
+    std::thread::spawn(move || {
+        use tauri_plugin_opener::OpenerExt;
         if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
             eprintln!("Không mở được liên kết: {e}");
         }
-    }
+    });
 }
 
 /// Kiểm tra bản mới khi mở app; nếu có thì hỏi người dùng rồi tải và cài (chỉ máy tính;
@@ -248,7 +255,16 @@ pub fn run() {
 
     builder
         .setup(|app| {
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()));
+            // Báo cho trang web biết đang chạy trong app và phiên bản app (hiện ở chân trang).
+            let platform = if cfg!(mobile) { "android" } else { "desktop" };
+            let app_info_js = format!(
+                "window.__DASH_APP__ = {{ version: '{}', platform: '{}' }};",
+                app.package_info().version,
+                platform
+            );
+
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .initialization_script(app_info_js.as_str());
 
             // Kích thước cửa sổ, phím F11 và chặn cửa sổ mới: chỉ áp dụng trên máy tính.
             #[cfg(desktop)]

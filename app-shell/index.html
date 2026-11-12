@@ -53,6 +53,23 @@
       let attempt = 0;
       let stopped = false;
 
+      // Gắn phiên bản app + nền tảng vào địa chỉ để chân trang của dashboard hiện "Ứng dụng vX.Y.Z".
+      // (Lấy từ Tauri; nếu không lấy được thì bỏ qua, dashboard vẫn mở bình thường.)
+      async function dashboardUrl() {
+        try {
+          const inv = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+          if (!inv) return DASHBOARD_URL;
+          const version = await Promise.race([
+            inv('plugin:app|version'),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000)),
+          ]);
+          const platform = /android/i.test(navigator.userAgent) ? 'android' : 'desktop';
+          return DASHBOARD_URL + '/?appv=' + encodeURIComponent(version) + '&appp=' + platform;
+        } catch {
+          return DASHBOARD_URL;
+        }
+      }
+
       async function ping() {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 10000);
@@ -78,7 +95,7 @@
           attempt++;
           if (await ping()) {
             msg.textContent = 'Đã kết nối, đang mở…';
-            location.replace(DASHBOARD_URL);
+            location.replace(await dashboardUrl());
             return;
           }
           if (attempt >= 3) {
