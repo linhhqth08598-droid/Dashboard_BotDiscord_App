@@ -15,14 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Đồng bộ phiên bản theo tag
-        shell: bash
-        run: node scripts/sync-version.mjs "${GITHUB_REF_NAME#v}"
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+
+      - name: Đồng bộ phiên bản theo tag
+        shell: bash
+        run: node scripts/sync-version.mjs "${GITHUB_REF_NAME#v}"
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -56,10 +56,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Đồng bộ phiên bản theo tag
-        shell: bash
-        run: node scripts/sync-version.mjs "${GITHUB_REF_NAME#v}"
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -69,6 +65,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Đồng bộ phiên bản theo tag
+        shell: bash
+        run: node scripts/sync-version.mjs "${GITHUB_REF_NAME#v}"
 
       # Chỉ build arm64 (gần như mọi điện thoại hiện nay) để APK nhẹ.
       - uses: dtolnay/rust-toolchain@stable
