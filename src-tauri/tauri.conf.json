@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Discord Bot Dashboard",
-  "version": "0.2.1",
-  "identifier": "com.tauri.admin",
+  "version": "0.2.2",
+  "identifier": "vn.io.linhhq.dashboardbot",
   "build": {
     "frontendDist": "../app-shell"
   },

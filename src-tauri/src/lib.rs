@@ -1,6 +1,6 @@
-use tauri::{WebviewUrl, WebviewWindowBuilder};
 #[cfg(desktop)]
 use tauri::webview::NewWindowResponse;
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 #[cfg(desktop)]
 use tauri_plugin_updater::UpdaterExt;
@@ -18,7 +18,7 @@ if (window.top === window) {
 "#;
 
 /// Địa chỉ (host) của dashboard: chỉ trang này và trang đăng nhập Discord mới được mở bên trong app.
-const DASHBOARD_HOST: &str = "dashboard-botdiscord.onrender.com";
+const DASHBOARD_HOST: &str = "linhhq.io.vn";
 
 /// Android: WebView của app không tự mở được liên kết `target="_blank"` / `window.open(...)`
 /// (nút "Thêm Vào Server", nút website của bot...). Script này đổi chúng thành điều hướng thường,
@@ -53,7 +53,11 @@ fn allow_in_app(url: &tauri::Url) -> bool {
         _ => return false,
     }
     let host = url.host_str().unwrap_or("").to_ascii_lowercase();
-    if host == DASHBOARD_HOST || host == "tauri.localhost" || host == "localhost" || host.ends_with(".localhost") {
+    if host == DASHBOARD_HOST
+        || host == "tauri.localhost"
+        || host == "localhost"
+        || host.ends_with(".localhost")
+    {
         return true;
     }
     let is_discord = host == "discord.com"
@@ -62,7 +66,8 @@ fn allow_in_app(url: &tauri::Url) -> bool {
         || host.ends_with(".discordapp.com");
     if is_discord {
         let q = url.query().unwrap_or("").to_ascii_lowercase();
-        let is_invite = q.contains("scope=bot") || q.contains("permissions=") || q.contains("guild_id=");
+        let is_invite =
+            q.contains("scope=bot") || q.contains("permissions=") || q.contains("guild_id=");
         return !is_invite;
     }
     false
@@ -132,8 +137,7 @@ fn check_for_updates(app: tauri::AppHandle) {
 
 /// Địa chỉ file latest.json do GitHub Actions tạo ra mỗi lần phát hành bản mới.
 #[cfg(mobile)]
-const LATEST_JSON_URL: &str =
-    "https://github.com/linhhqth08598-droid/Dashboard_BotDiscord_App/releases/latest/download/latest.json";
+const LATEST_JSON_URL: &str = "https://github.com/linhhqth08598-droid/Dashboard_BotDiscord_App/releases/latest/download/latest.json";
 
 /// Trang tải bản mới (nơi có file APK). Bấm "Cập nhật" sẽ mở trang này trong trình duyệt.
 #[cfg(mobile)]
@@ -150,7 +154,11 @@ fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
             .parse::<u64>()
             .ok()
     });
-    Some((parts.next()??, parts.next().unwrap_or(Some(0))?, parts.next().unwrap_or(Some(0))?))
+    Some((
+        parts.next()??,
+        parts.next().unwrap_or(Some(0))?,
+        parts.next().unwrap_or(Some(0))?,
+    ))
 }
 
 /// Android: khi mở app, hỏi GitHub bản mới nhất. Nếu mới hơn bản đang chạy thì hiện hộp thoại
@@ -188,8 +196,12 @@ fn check_for_updates_mobile(app: tauri::AppHandle) {
             }
         };
 
-        let Some(latest_str) = json.get("version").and_then(|v| v.as_str()) else { return };
-        let Some(latest) = parse_version(latest_str) else { return };
+        let Some(latest_str) = json.get("version").and_then(|v| v.as_str()) else {
+            return;
+        };
+        let Some(latest) = parse_version(latest_str) else {
+            return;
+        };
         let current_ver = &app.package_info().version;
         let current = (current_ver.major, current_ver.minor, current_ver.patch);
         if latest <= current {
@@ -239,8 +251,9 @@ pub fn run() {
                 platform
             );
 
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .initialization_script(app_info_js.as_str());
+            let window =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .initialization_script(app_info_js.as_str());
 
             // Liên kết ngoài (mời bot, website của bot, Discord hỗ trợ...) mở bằng trình duyệt mặc định,
             // cả trên máy tính lẫn Android. Trang dashboard / đăng nhập Discord vẫn mở trong app.

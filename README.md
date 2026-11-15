@@ -1,6 +1,6 @@
 # Discord Bot Dashboard (ứng dụng Windows + Android)
 
-Cửa sổ desktop (Tauri) mở thẳng dashboard web https://dashboard-botdiscord.onrender.com,
+Cửa sổ desktop (Tauri) mở thẳng dashboard web https://linhhq.io.vn,
 nên giao diện, đăng nhập Discord và chọn server giống hệt bản web.
 
 ## Chạy
