@@ -1,4 +1,4 @@
-const COMMANDS: &[&str] = &["update"];
+const COMMANDS: &[&str] = &["update", "set_lang"];
 
 fn main() {
     tauri_plugin::Builder::new(COMMANDS)

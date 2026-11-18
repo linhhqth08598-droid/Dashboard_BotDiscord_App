@@ -5,7 +5,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 #[cfg(desktop)]
 use tauri_plugin_updater::UpdaterExt;
 #[cfg(desktop)]
-use tauri::Manager;
+use tauri::{Listener, Manager};
 
 /// Mã định danh app (phải trùng `identifier` trong tauri.conf.json). Windows dùng làm AppUserModelID.
 #[cfg(windows)]
@@ -51,32 +51,88 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+/// Ngôn ngữ của khay + hộp thoại: theo ngôn ngữ đang chọn trong web (web báo qua lệnh `set_lang`, xem plugin dash-media).
+#[cfg(desktop)]
+static LANG_EN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Chọn chữ theo ngôn ngữ hiện tại.
+#[cfg(desktop)]
+fn t(vi: &str, en: &str) -> String {
+    (if LANG_EN.load(std::sync::atomic::Ordering::Relaxed) { en } else { vi }).to_string()
+}
+
+/// Giữ các mục menu khay để đổi chữ khi web đổi ngôn ngữ.
+#[cfg(desktop)]
+struct TrayItems {
+    open: tauri::menu::IconMenuItem<tauri::Wry>,
+    check: tauri::menu::MenuItem<tauri::Wry>,
+    web: tauri::menu::MenuItem<tauri::Wry>,
+    quit: tauri::menu::MenuItem<tauri::Wry>,
+}
+
+/// Nhớ ngôn ngữ lần trước ra file để khay hiện đúng ngay từ lúc mở app (trước khi trang web kịp tải xong).
+#[cfg(desktop)]
+fn lang_file(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("lang.txt"))
+}
+
+#[cfg(desktop)]
+fn load_lang(app: &tauri::AppHandle) {
+    let en = lang_file(app)
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .map(|v| v.trim() == "en")
+        .unwrap_or(false);
+    LANG_EN.store(en, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Đổi chữ menu khay theo ngôn ngữ (gọi khi web đổi ngôn ngữ).
+#[cfg(desktop)]
+fn apply_lang(app: &tauri::AppHandle, en: bool) {
+    LANG_EN.store(en, std::sync::atomic::Ordering::Relaxed);
+    if let Some(f) = lang_file(app) {
+        if let Some(dir) = f.parent() { let _ = std::fs::create_dir_all(dir); }
+        let _ = std::fs::write(f, if en { "en" } else { "vi" });
+    }
+    if let Some(items) = app.try_state::<TrayItems>() {
+        let _ = items.open.set_text("Dashboard");
+        let _ = items.check.set_text(t("Kiểm tra cập nhật...", "Check for updates..."));
+        let _ = items.web.set_text(t("Mở web", "Open website"));
+        let _ = items.quit.set_text(t("Thoát Dashboard", "Quit Dashboard"));
+    }
+}
+
 /// Biểu tượng ở khay hệ thống (giống Discord): bấm trái = mở lại cửa sổ, bấm phải = menu
-/// (Dashboard / Kiểm tra cập nhật... / Web / Thoát Dashboard). Chỉ "Thoát Dashboard" mới tắt app (và nhạc).
+/// (Dashboard / Kiểm tra cập nhật... / Mở web / Thoát Dashboard). Chỉ "Thoát Dashboard" mới tắt app (và nhạc).
 #[cfg(desktop)]
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     use tauri::image::Image;
     use tauri::menu::{IconMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-    // Dòng đầu: logo + tên app, chữ xám (không bấm được) - giống dòng "Discord" ở menu khay của Discord.
-    let title = IconMenuItemBuilder::with_id("title", "Dashboard")
+    load_lang(app);
+
+    // Dòng đầu: logo + tên app, bấm vào = mở cửa sổ Dashboard (giống dòng "Discord" ở khay của Discord).
+    let open = IconMenuItemBuilder::with_id("open", "Dashboard")
         .icon(Image::from_bytes(include_bytes!("../icons/32x32.png"))?)
-        .enabled(false)
         .build(app)?;
-    let check = MenuItemBuilder::with_id("check_update", "Kiểm tra cập nhật...").build(app)?;
-    let web = MenuItemBuilder::with_id("web", format!("Web ({DASHBOARD_HOST})")).build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "Thoát Dashboard").build(app)?;
+    let check = MenuItemBuilder::with_id("check_update", t("Kiểm tra cập nhật...", "Check for updates...")).build(app)?;
+    let web = MenuItemBuilder::with_id("web", t("Mở web", "Open website")).build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", t("Thoát Dashboard", "Quit Dashboard")).build(app)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = MenuBuilder::new(app)
-        .item(&title)
+        .item(&open)
         .item(&sep1)
         .item(&check)
         .item(&web)
         .item(&sep2)
         .item(&quit)
         .build()?;
+    app.manage(TrayItems { open, check, web, quit });
+
+    // Web đổi ngôn ngữ -> đổi chữ khay
+    let handle = app.clone();
+    app.listen("dash-lang", move |ev| apply_lang(&handle, ev.payload() == "\"en\""));
 
     TrayIconBuilder::with_id("main")
         .icon(Image::from_bytes(include_bytes!("../icons/32x32.png"))?)
@@ -84,6 +140,7 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => show_main_window(app),
             "check_update" => check_for_updates(app.clone(), true),
             "web" => {
                 if let Ok(url) = tauri::Url::parse(&format!("https://{DASHBOARD_HOST}")) {
@@ -206,7 +263,7 @@ static DECLINED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new())
 
 #[cfg(desktop)]
 fn update_message(app: &tauri::AppHandle, text: impl Into<String>) {
-    let _ = app.dialog().message(text.into()).title("Cập nhật ứng dụng").blocking_show();
+    let _ = app.dialog().message(text.into()).title(t("Cập nhật ứng dụng", "App update")).blocking_show();
 }
 
 /// Lỗi cập nhật: báo rõ lý do (trước đây im lặng nên tưởng "bấm mà không có gì xảy ra") và mời tải bộ cài thủ công.
@@ -215,11 +272,12 @@ fn update_failed(app: &tauri::AppHandle, what: &str, err: &str) {
     eprintln!("{what}: {err}");
     let open = app
         .dialog()
-        .message(format!(
-            "{what}.\n\nChi tiết: {err}\n\nBạn có thể tải bộ cài mới và cài đè lên bản đang dùng (không cần gỡ bản cũ). Mở trang tải ngay?"
+        .message(t(
+            &format!("{what}.\n\nChi tiết: {err}\n\nBạn có thể tải bộ cài mới và cài đè lên bản đang dùng (không cần gỡ bản cũ). Mở trang tải ngay?"),
+            &format!("{what}.\n\nDetails: {err}\n\nYou can download the new installer and install it over the current version (no need to uninstall). Open the download page now?"),
         ))
-        .title("Cập nhật ứng dụng")
-        .buttons(MessageDialogButtons::OkCancelCustom("Mở trang tải".to_string(), "Đóng".to_string()))
+        .title(t("Cập nhật ứng dụng", "App update"))
+        .buttons(MessageDialogButtons::OkCancelCustom(t("Mở trang tải", "Open download page"), t("Đóng", "Close")))
         .blocking_show();
     if open {
         if let Ok(url) = tauri::Url::parse(RELEASES_URL) {
@@ -237,7 +295,7 @@ fn check_for_updates(app: tauri::AppHandle, manual: bool) {
     use std::sync::atomic::Ordering;
     if UPDATING.swap(true, Ordering::SeqCst) {
         if manual {
-            let _ = app.dialog().message("Đang kiểm tra / tải cập nhật rồi, vui lòng chờ chút.").title("Cập nhật ứng dụng").show(|_| {});
+            let _ = app.dialog().message(t("Đang kiểm tra / tải cập nhật rồi, vui lòng chờ chút.", "Already checking / downloading an update, please wait.")).title(t("Cập nhật ứng dụng", "App update")).show(|_| {});
         }
         return;
     }
@@ -252,7 +310,7 @@ async fn run_update(app: &tauri::AppHandle, manual: bool) {
     let updater = match app.updater() {
         Ok(u) => u,
         Err(e) => {
-            if manual { update_failed(app, "Không khởi tạo được bộ cập nhật", &e.to_string()); }
+            if manual { update_failed(app, &t("Không khởi tạo được bộ cập nhật", "Could not start the updater"), &e.to_string()); }
             else { eprintln!("Không khởi tạo được updater: {e}"); }
             return;
         }
@@ -261,12 +319,15 @@ async fn run_update(app: &tauri::AppHandle, manual: bool) {
         Ok(Some(u)) => u,
         Ok(None) => {
             if manual {
-                update_message(app, format!("Bạn đang dùng phiên bản mới nhất ({}).", app.package_info().version));
+                update_message(app, t(
+                    &format!("Bạn đang dùng phiên bản mới nhất ({}).", app.package_info().version),
+                    &format!("You are on the latest version ({}).", app.package_info().version),
+                ));
             }
             return;
         }
         Err(e) => {
-            if manual { update_failed(app, "Không kiểm tra được bản cập nhật", &e.to_string()); }
+            if manual { update_failed(app, &t("Không kiểm tra được bản cập nhật", "Could not check for updates"), &e.to_string()); }
             else { eprintln!("Không kiểm tra được cập nhật: {e}"); }
             return;
         }
@@ -279,12 +340,12 @@ async fn run_update(app: &tauri::AppHandle, manual: bool) {
 
     let agree = app
         .dialog()
-        .message(format!(
-            "Đã có phiên bản mới {} (bạn đang dùng {}). Cập nhật ngay?\n\nỨng dụng (và nhạc đang phát) sẽ tự đóng để cài, rồi tự mở lại.",
-            update.version, update.current_version
+        .message(t(
+            &format!("Đã có phiên bản mới {} (bạn đang dùng {}). Cập nhật ngay?\n\nỨng dụng (và nhạc đang phát) sẽ tự đóng để cài, rồi tự mở lại.", update.version, update.current_version),
+            &format!("A new version {} is available (you have {}). Update now?\n\nThe app (and any music playing) will close to install, then reopen.", update.version, update.current_version),
         ))
-        .title("Cập nhật ứng dụng")
-        .buttons(MessageDialogButtons::OkCancelCustom("Cập nhật".to_string(), "Để sau".to_string()))
+        .title(t("Cập nhật ứng dụng", "App update"))
+        .buttons(MessageDialogButtons::OkCancelCustom(t("Cập nhật", "Update"), t("Để sau", "Later")))
         .blocking_show();
     if !agree {
         if let Ok(mut d) = DECLINED.lock() { *d = update.version.clone(); }
@@ -293,11 +354,14 @@ async fn run_update(app: &tauri::AppHandle, manual: bool) {
 
     // Báo đang tải (trước đây bấm xong im lặng nên tưởng không chạy): tiến độ hiện ở tooltip của biểu tượng khay.
     let tray = app.tray_by_id("main");
-    if let Some(t) = &tray { let _ = t.set_tooltip(Some("Đang tải bản cập nhật... 0%")); }
+    if let Some(icon) = &tray { let _ = icon.set_tooltip(Some(t("Đang tải bản cập nhật... 0%", "Downloading update... 0%"))); }
     let _ = app
         .dialog()
-        .message("Đang tải bản cập nhật ở nền. Tải xong ứng dụng sẽ tự đóng, cài đặt rồi mở lại. Tiến độ hiện khi rê chuột vào biểu tượng ở khay hệ thống.")
-        .title("Cập nhật ứng dụng")
+        .message(t(
+            "Đang tải bản cập nhật ở nền. Tải xong ứng dụng sẽ tự đóng, cài đặt rồi mở lại. Tiến độ hiện khi rê chuột vào biểu tượng ở khay hệ thống.",
+            "Downloading the update in the background. When done, the app will close, install and reopen. Hover the tray icon to see progress.",
+        ))
+        .title(t("Cập nhật ứng dụng", "App update"))
         .show(|_| {});
 
     let mut downloaded: u64 = 0;
@@ -307,12 +371,12 @@ async fn run_update(app: &tauri::AppHandle, manual: bool) {
         .download_and_install(
             move |chunk, total| {
                 downloaded += chunk as u64;
-                if let (Some(total), Some(t)) = (total, &tray_for_progress) {
+                if let (Some(total), Some(icon)) = (total, &tray_for_progress) {
                     if total > 0 {
                         let pct = downloaded * 100 / total;
                         if pct >= last_pct + 5 || pct == 100 {
                             last_pct = pct;
-                            let _ = t.set_tooltip(Some(format!("Đang tải bản cập nhật... {pct}%")));
+                            let _ = icon.set_tooltip(Some(t(&format!("Đang tải bản cập nhật... {pct}%"), &format!("Downloading update... {pct}%"))));
                         }
                     }
                 }
@@ -321,9 +385,9 @@ async fn run_update(app: &tauri::AppHandle, manual: bool) {
         )
         .await;
 
-    if let Some(t) = &tray { let _ = t.set_tooltip(Some("Discord Bot Dashboard")); }
+    if let Some(icon) = &tray { let _ = icon.set_tooltip(Some("Discord Bot Dashboard")); }
     if let Err(e) = result {
-        update_failed(app, "Tải / cài bản cập nhật thất bại", &e.to_string());
+        update_failed(app, &t("Tải / cài bản cập nhật thất bại", "Downloading / installing the update failed"), &e.to_string());
         return;
     }
     // Windows: bộ cài đã chạy và app thường đã tự thoát trước dòng này; các hệ khác thì khởi động lại tại đây.

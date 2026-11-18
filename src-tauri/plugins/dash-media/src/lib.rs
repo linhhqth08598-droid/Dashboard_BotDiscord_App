@@ -57,9 +57,17 @@ fn update<R: Runtime>(app: AppHandle<R>, state: MediaState) -> Result<(), String
     dispatch(&app, state)
 }
 
+/// Trang báo ngôn ngữ đang dùng ("vi" / "en") để menu khay hệ thống đổi theo. Plugin chỉ phát sự kiện `dash-lang`,
+/// phần khay (src/lib.rs của app) lắng nghe và đổi chữ. Android không có khay nên sự kiện không ai nghe (vô hại).
+#[tauri::command]
+fn set_lang<R: Runtime>(app: AppHandle<R>, lang: String) -> Result<(), String> {
+    use tauri::Emitter;
+    app.emit("dash-lang", if lang == "en" { "en" } else { "vi" }).map_err(|e| e.to_string())
+}
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("dash-media")
-        .invoke_handler(tauri::generate_handler![update])
+        .invoke_handler(tauri::generate_handler![update, set_lang])
         .setup(|_app, _api| {
             #[cfg(target_os = "android")]
             {
