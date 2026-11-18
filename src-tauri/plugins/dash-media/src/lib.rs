@@ -28,6 +28,9 @@ pub struct MediaState {
     pub duration: f64,
     /// giây, tại thời điểm gửi
     pub position: f64,
+    /// Phòng nhạc đang nghe + địa chỉ web (Android: để dịch vụ nền tự phát tiếp khi app bị vuốt đóng)
+    pub guild_id: String,
+    pub base_url: String,
 }
 
 #[cfg(target_os = "android")]

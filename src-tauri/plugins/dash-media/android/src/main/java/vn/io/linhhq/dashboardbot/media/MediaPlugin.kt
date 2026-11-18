@@ -24,6 +24,10 @@ class MediaArgs {
     var artwork: String = ""
     var duration: Double = 0.0
     var position: Double = 0.0
+
+    /** Phòng nhạc đang nghe + địa chỉ web: để dịch vụ nền tự phát tiếp khi app bị vuốt đóng (xem NativeEngine). */
+    var guildId: String = ""
+    var baseUrl: String = ""
 }
 
 /** Chiều ngược lại: nút tai nghe / thông báo -> gọi hàm JS của trang. */

@@ -53,6 +53,15 @@ class MediaPlaybackService : Service() {
     private var artUrl = ""
     private var foreground = false
 
+    /** Có giá trị = app đã bị vuốt đóng và dịch vụ đang TỰ phát nhạc (không còn WebView). */
+    private var engine: NativeEngine? = null
+
+    /** Lệnh từ nút thông báo / tai nghe: tự phát thì gọi thẳng server, còn trang web đang sống thì chuyển cho trang. */
+    private fun cmd(action: String, value: Double = 0.0) {
+        val e = engine
+        if (e != null) e.command(action, value) else MediaBridge.sendToJs(action, value)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -63,14 +72,14 @@ class MediaPlaybackService : Service() {
             @Suppress("DEPRECATION")
             setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
             setCallback(object : MediaSession.Callback() {
-                override fun onPlay() = MediaBridge.sendToJs("play")
-                override fun onPause() = MediaBridge.sendToJs("pause")
-                override fun onStop() = MediaBridge.sendToJs("stop")
-                override fun onSkipToNext() = MediaBridge.sendToJs("next")
-                override fun onSkipToPrevious() = MediaBridge.sendToJs("prev")
-                override fun onSeekTo(pos: Long) = MediaBridge.sendToJs("seekto", pos / 1000.0)
-                override fun onFastForward() = MediaBridge.sendToJs("seekby", 10.0)
-                override fun onRewind() = MediaBridge.sendToJs("seekby", -10.0)
+                override fun onPlay() = cmd("play")
+                override fun onPause() = cmd("pause")
+                override fun onStop() = cmd("stop")
+                override fun onSkipToNext() = cmd("next")
+                override fun onSkipToPrevious() = cmd("prev")
+                override fun onSeekTo(pos: Long) = cmd("seekto", pos / 1000.0)
+                override fun onFastForward() = cmd("seekby", 10.0)
+                override fun onRewind() = cmd("seekby", -10.0)
             })
             isActive = true
         }
@@ -78,10 +87,10 @@ class MediaPlaybackService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACT_PREV -> MediaBridge.sendToJs("prev")
-            ACT_NEXT -> MediaBridge.sendToJs("next")
-            ACT_TOGGLE -> MediaBridge.sendToJs(if (state.playing) "pause" else "play")
-            ACT_CLOSE -> MediaBridge.sendToJs("stop")
+            ACT_PREV -> cmd("prev")
+            ACT_NEXT -> cmd("next")
+            ACT_TOGGLE -> cmd(if (state.playing) "pause" else "play")
+            ACT_CLOSE -> cmd("stop")
             else -> pending?.let {
                 pending = null
                 applyNow(it)
@@ -94,7 +103,37 @@ class MediaPlaybackService : Service() {
 
     /** Gọi từ plugin mỗi khi trang gửi trạng thái mới (đổi bài / phát / dừng / tua). */
     fun applyState(s: MediaArgs) {
-        main.post { applyNow(s) }
+        main.post {
+            if (engine == null) {
+                applyNow(s)
+            } else if (s.active && s.playing) {
+                // App mở lại và trang web đã phát tiếng trở lại: trả quyền phát về cho trang, dịch vụ thôi tự phát
+                stopNative()
+                applyNow(s)
+            }
+            // Còn lại (trang chưa phát gì): để dịch vụ tiếp tục tự phát
+        }
+    }
+
+    private fun startNative(s: MediaArgs) {
+        stopNative()
+        val e = NativeEngine(this, s.baseUrl, s.guildId, s.artwork, object : NativeEngine.Listener {
+            override fun onTrack(args: MediaArgs) {
+                applyNow(args)
+            }
+
+            override fun onFinished() {
+                engine = null
+                shutdown()
+            }
+        })
+        engine = e
+        e.start()
+    }
+
+    private fun stopNative() {
+        engine?.stop()
+        engine = null
     }
 
     private fun applyNow(s: MediaArgs) {
@@ -154,6 +193,7 @@ class MediaPlaybackService : Service() {
             .setSubText(state.album)
             .setShowWhen(false)
             .setOnlyAlertOnce(true)
+            .setDeleteIntent(pi(ACT_CLOSE, 5))
             .setOngoing(state.playing)
             .setCategory(Notification.CATEGORY_TRANSPORT)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
@@ -248,6 +288,7 @@ class MediaPlaybackService : Service() {
     }
 
     private fun shutdown() {
+        stopNative()
         releaseWakeLock()
         try {
             session.isActive = false
@@ -260,14 +301,19 @@ class MediaPlaybackService : Service() {
         stopSelf()
     }
 
-    /** Vuốt app khỏi danh sách gần đây: WebView (nơi phát nhạc) chết theo, nên tắt luôn thông báo cho khỏi treo. */
+    /**
+     * Vuốt app khỏi danh sách gần đây: WebView (nơi phát nhạc) chết theo. Đang phát thì dịch vụ TỰ phát tiếp (giống YouTube),
+     * tắt hẳn bằng nút "Dừng" trên thông báo; không có gì đang phát thì tắt thông báo cho khỏi treo.
+     */
     override fun onTaskRemoved(rootIntent: Intent?) {
         MediaBridge.webView = null
-        shutdown()
+        val s = state
+        if (s.active && s.playing && s.guildId.isNotEmpty() && s.baseUrl.isNotEmpty()) startNative(s) else shutdown()
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
+        stopNative()
         releaseWakeLock()
         try {
             session.release()
