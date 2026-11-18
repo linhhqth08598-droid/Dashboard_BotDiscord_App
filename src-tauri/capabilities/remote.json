@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-dashboard-media",
+  "description": "Cho trang dashboard (web) gửi trạng thái nhạc tới điều khiển media của hệ điều hành. Chỉ đúng một lệnh, không có quyền nào khác.",
+  "remote": {
+    "urls": ["https://linhhq.io.vn/*"]
+  },
+  "windows": ["main"],
+  "permissions": ["dash-media:allow-update"]
+}

@@ -16,8 +16,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
-tauri = { version = "2.12.5", features = [] }
+tauri = { version = "2.12.5", features = ["tray-icon", "image-png"] }
 serde_json = "1"
+
+# Điều khiển media của hệ điều hành (Windows SMTC / thông báo nhạc Android) - plugin nội bộ.
+tauri-plugin-dash-media = { path = "plugins/dash-media" }
 
 # Hộp thoại và mở trang tải dùng cho cả máy tính lẫn Android.
 tauri-plugin-dialog = "2"
@@ -26,6 +29,13 @@ tauri-plugin-opener = "2"
 # Updater chỉ dùng trên máy tính, không có trên Android/iOS.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+# Chạy lần 2 thì chỉ đưa cửa sổ đang chạy lên, không mở thêm bản thứ hai (app ở khay hệ thống).
+tauri-plugin-single-instance = "2"
+
+# Windows: đặt tên ứng dụng (AppUserModelID) để ô nhạc Windows không ghi "Ứng dụng không xác định".
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+windows = { version = "0.62", features = ["Win32_UI_Shell"] }
 
 # Android/iOS: tự hỏi GitHub xem có bản mới không (dùng rustls để khỏi phụ thuộc OpenSSL).
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]

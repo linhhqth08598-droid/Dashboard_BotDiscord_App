@@ -1,0 +1,18 @@
+[package]
+name = "tauri-plugin-dash-media"
+version = "0.1.0"
+description = "Điều khiển media của hệ điều hành: Windows (SMTC) và Android (thông báo nhạc + dịch vụ chạy nền)."
+edition = "2021"
+rust-version = "1.77"
+links = "tauri-plugin-dash-media"
+
+[dependencies]
+tauri = "2"
+serde = { version = "1", features = ["derive"] }
+
+# Windows: System Media Transport Controls (ô nhạc trên Windows, phím media, tai nghe, Liên kết điện thoại).
+[target.'cfg(windows)'.dependencies]
+souvlaki = "0.8"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

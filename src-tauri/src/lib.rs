@@ -4,6 +4,87 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 #[cfg(desktop)]
 use tauri_plugin_updater::UpdaterExt;
+#[cfg(desktop)]
+use tauri::Manager;
+
+/// Mã định danh app (phải trùng `identifier` trong tauri.conf.json). Windows dùng làm AppUserModelID.
+#[cfg(windows)]
+const APP_ID: &str = "vn.io.linhhq.dashboardbot";
+#[cfg(windows)]
+const APP_NAME: &str = "Discord Bot Dashboard";
+
+/// Windows: khai báo "danh tính" của app. Không có bước này, ô nhạc của Windows (phím media, màn hình khóa...)
+/// không biết nhạc đến từ app nào nên ghi "Ứng dụng không xác định".
+#[cfg(windows)]
+fn register_windows_identity() {
+    use windows::{core::w, Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID};
+    unsafe {
+        let _ = SetCurrentProcessExplicitAppUserModelID(w!("vn.io.linhhq.dashboardbot"));
+    }
+
+    let _ = (|| -> std::io::Result<()> {
+        use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+        let (key, _) = RegKey::predef(HKEY_CURRENT_USER)
+            .create_subkey(format!(r"Software\Classes\AppUserModelId\{APP_ID}"))?;
+        key.set_value("DisplayName", &APP_NAME)?;
+        // Icon hiện cạnh tên app: ghi file icon ra thư mục dữ liệu rồi trỏ tới
+        if let Some(dir) = std::env::var_os("LOCALAPPDATA") {
+            let dir = std::path::PathBuf::from(dir).join(APP_ID);
+            if std::fs::create_dir_all(&dir).is_ok() {
+                let icon = dir.join("icon.png");
+                if std::fs::write(&icon, include_bytes!("../icons/128x128.png")).is_ok() {
+                    key.set_value("IconUri", &icon.to_string_lossy().to_string())?;
+                }
+            }
+        }
+        Ok(())
+    })();
+}
+
+/// Đưa cửa sổ chính lên (từ khay hệ thống, hoặc khi mở app lần 2).
+#[cfg(desktop)]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// Biểu tượng ở khay hệ thống: bấm trái = mở lại cửa sổ, bấm phải = menu. Chỉ "Thoát hẳn" mới tắt app (và nhạc).
+#[cfg(desktop)]
+fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::image::Image;
+    use tauri::menu::{MenuBuilder, MenuItemBuilder};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let open = MenuItemBuilder::with_id("open", "Mở Dashboard").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Thoát hẳn (tắt cả nhạc)").build(app)?;
+    let menu = MenuBuilder::new(app).items(&[&open, &quit]).build()?;
+
+    TrayIconBuilder::with_id("main")
+        .icon(Image::from_bytes(include_bytes!("../icons/32x32.png"))?)
+        .tooltip("Discord Bot Dashboard")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
 
 #[cfg(desktop)]
 const FULLSCREEN_JS: &str = r#"
@@ -232,10 +313,32 @@ fn check_for_updates_mobile(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Hộp thoại + mở trang tải: dùng cho cả máy tính và Android.
-    let builder = tauri::Builder::default()
+    // Phải đặt TRƯỚC khi tạo cửa sổ / WebView, để Windows gắn nhạc với đúng tên app.
+    #[cfg(windows)]
+    register_windows_identity();
+
+    // Máy tính: mở app lần 2 thì chỉ đưa cửa sổ đang chạy (có thể đang ẩn dưới khay) lên. Plugin này phải đăng ký đầu tiên.
+    #[cfg(desktop)]
+    let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        show_main_window(app);
+    }));
+    #[cfg(not(desktop))]
+    let builder = tauri::Builder::default();
+
+    // Hộp thoại + mở trang tải + điều khiển media (SMTC / thông báo nhạc): dùng cho cả máy tính và Android.
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dash_media::init());
+
+    // Máy tính: bấm X chỉ ẩn cửa sổ xuống khay, nhạc vẫn phát nền (giống Discord / Spotify). Tắt hẳn bằng menu khay.
+    #[cfg(desktop)]
+    let builder = builder.on_window_event(|window, event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+    });
 
     // Updater chỉ có trên máy tính (Windows/macOS/Linux).
     #[cfg(desktop)]
@@ -282,11 +385,29 @@ pub fn run() {
                     })
             };
 
+            // Windows (WebView2):
+            //  - MediaSessionService + HardwareMediaKeyHandling: tắt ô nhạc tự động của WebView (nó ghi "Ứng dụng không xác định"
+            //    và tranh phím media); ô nhạc + phím media do app tự quản lý qua plugin dash-media (SMTC).
+            //  - autoplay + *-throttling / backgrounding: nhạc vẫn chạy đúng khi cửa sổ bị ẩn xuống khay.
+            //  (Giữ nguyên 3 mục msWebOOUI,msPdfOOUI,msSmartScreenProtection là mặc định của Tauri.)
+            #[cfg(windows)]
+            let window = window.additional_browser_args(
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,MediaSessionService,HardwareMediaKeyHandling \
+                 --autoplay-policy=no-user-gesture-required \
+                 --disable-background-timer-throttling \
+                 --disable-renderer-backgrounding \
+                 --disable-backgrounding-occluded-windows",
+            );
+
             // Android: tự đổi target="_blank" / window.open thành điều hướng thường để on_navigation ở trên bắt được.
             #[cfg(mobile)]
             let window = window.initialization_script(MOBILE_LINKS_JS);
 
             window.build()?;
+
+            // Biểu tượng khay hệ thống (máy tính)
+            #[cfg(desktop)]
+            setup_tray(app.handle())?;
 
             #[cfg(desktop)]
             {
