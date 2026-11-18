@@ -192,70 +192,142 @@ fn open_external(app: &tauri::AppHandle, url: &tauri::Url) {
     });
 }
 
+/// Trang phát hành: nơi tải bộ cài thủ công khi tự cập nhật lỗi.
+#[cfg(desktop)]
+const RELEASES_URL: &str = "https://github.com/linhhqth08598-droid/Dashboard_BotDiscord_App/releases/latest";
+
+/// Đang có một lần kiểm tra / cập nhật chạy: tránh hiện 2 hộp thoại cùng lúc.
+#[cfg(desktop)]
+static UPDATING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Phiên bản người dùng đã bấm "Để sau": lần tự kiểm tra định kỳ không hỏi lại bản đó nữa (đến khi mở lại app).
+#[cfg(desktop)]
+static DECLINED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+#[cfg(desktop)]
+fn update_message(app: &tauri::AppHandle, text: impl Into<String>) {
+    let _ = app.dialog().message(text.into()).title("Cập nhật ứng dụng").blocking_show();
+}
+
+/// Lỗi cập nhật: báo rõ lý do (trước đây im lặng nên tưởng "bấm mà không có gì xảy ra") và mời tải bộ cài thủ công.
+#[cfg(desktop)]
+fn update_failed(app: &tauri::AppHandle, what: &str, err: &str) {
+    eprintln!("{what}: {err}");
+    let open = app
+        .dialog()
+        .message(format!(
+            "{what}.\n\nChi tiết: {err}\n\nBạn có thể tải bộ cài mới và cài đè lên bản đang dùng (không cần gỡ bản cũ). Mở trang tải ngay?"
+        ))
+        .title("Cập nhật ứng dụng")
+        .buttons(MessageDialogButtons::OkCancelCustom("Mở trang tải".to_string(), "Đóng".to_string()))
+        .blocking_show();
+    if open {
+        if let Ok(url) = tauri::Url::parse(RELEASES_URL) {
+            open_external(app, &url);
+        }
+    }
+}
+
 /// Kiểm tra bản mới; nếu có thì hỏi người dùng rồi tải và cài (chỉ máy tính;
 /// bản Android xem check_for_updates_mobile).
 /// `manual` = bấm "Kiểm tra cập nhật..." ở khay: khi không có bản mới hoặc bị lỗi thì báo lại cho người dùng
-/// (lúc tự kiểm tra khi mở app thì im lặng).
+/// (kiểm tra tự động khi mở app / định kỳ thì im lặng nếu không có gì mới).
 #[cfg(desktop)]
 fn check_for_updates(app: tauri::AppHandle, manual: bool) {
+    use std::sync::atomic::Ordering;
+    if UPDATING.swap(true, Ordering::SeqCst) {
+        if manual {
+            let _ = app.dialog().message("Đang kiểm tra / tải cập nhật rồi, vui lòng chờ chút.").title("Cập nhật ứng dụng").show(|_| {});
+        }
+        return;
+    }
     tauri::async_runtime::spawn(async move {
-        let updater = match app.updater() {
-            Ok(u) => u,
-            Err(e) => {
-                eprintln!("Không khởi tạo được updater: {e}");
-                return;
-            }
-        };
-        let update = match updater.check().await {
-            Ok(Some(u)) => u,
-            Ok(None) => {
-                if manual {
-                    let _ = app
-                        .dialog()
-                        .message(format!(
-                            "Bạn đang dùng phiên bản mới nhất ({}).",
-                            app.package_info().version
-                        ))
-                        .title("Cập nhật ứng dụng")
-                        .blocking_show();
-                }
-                return;
-            }
-            Err(e) => {
-                eprintln!("Không kiểm tra được cập nhật: {e}");
-                if manual {
-                    let _ = app
-                        .dialog()
-                        .message("Không kiểm tra được bản cập nhật. Kiểm tra kết nối mạng rồi thử lại.")
-                        .title("Cập nhật ứng dụng")
-                        .blocking_show();
-                }
-                return;
-            }
-        };
-
-        let agree = app
-            .dialog()
-            .message(format!(
-                "Đã có phiên bản mới {} (bạn đang dùng {}). Cập nhật ngay?",
-                update.version, update.current_version
-            ))
-            .title("Cập nhật ứng dụng")
-            .buttons(MessageDialogButtons::OkCancelCustom(
-                "Cập nhật".to_string(),
-                "Để sau".to_string(),
-            ))
-            .blocking_show();
-        if !agree {
-            return;
-        }
-
-        if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
-            eprintln!("Cập nhật thất bại: {e}");
-            return;
-        }
-        app.restart();
+        run_update(&app, manual).await;
+        UPDATING.store(false, Ordering::SeqCst);
     });
+}
+
+#[cfg(desktop)]
+async fn run_update(app: &tauri::AppHandle, manual: bool) {
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            if manual { update_failed(app, "Không khởi tạo được bộ cập nhật", &e.to_string()); }
+            else { eprintln!("Không khởi tạo được updater: {e}"); }
+            return;
+        }
+    };
+    let update = match updater.check().await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            if manual {
+                update_message(app, format!("Bạn đang dùng phiên bản mới nhất ({}).", app.package_info().version));
+            }
+            return;
+        }
+        Err(e) => {
+            if manual { update_failed(app, "Không kiểm tra được bản cập nhật", &e.to_string()); }
+            else { eprintln!("Không kiểm tra được cập nhật: {e}"); }
+            return;
+        }
+    };
+
+    // Kiểm tra định kỳ: bản đã bấm "Để sau" thì không làm phiền lại
+    if !manual && DECLINED.lock().map(|d| *d == update.version).unwrap_or(false) {
+        return;
+    }
+
+    let agree = app
+        .dialog()
+        .message(format!(
+            "Đã có phiên bản mới {} (bạn đang dùng {}). Cập nhật ngay?\n\nỨng dụng (và nhạc đang phát) sẽ tự đóng để cài, rồi tự mở lại.",
+            update.version, update.current_version
+        ))
+        .title("Cập nhật ứng dụng")
+        .buttons(MessageDialogButtons::OkCancelCustom("Cập nhật".to_string(), "Để sau".to_string()))
+        .blocking_show();
+    if !agree {
+        if let Ok(mut d) = DECLINED.lock() { *d = update.version.clone(); }
+        return;
+    }
+
+    // Báo đang tải (trước đây bấm xong im lặng nên tưởng không chạy): tiến độ hiện ở tooltip của biểu tượng khay.
+    let tray = app.tray_by_id("main");
+    if let Some(t) = &tray { let _ = t.set_tooltip(Some("Đang tải bản cập nhật... 0%")); }
+    let _ = app
+        .dialog()
+        .message("Đang tải bản cập nhật ở nền. Tải xong ứng dụng sẽ tự đóng, cài đặt rồi mở lại. Tiến độ hiện khi rê chuột vào biểu tượng ở khay hệ thống.")
+        .title("Cập nhật ứng dụng")
+        .show(|_| {});
+
+    let mut downloaded: u64 = 0;
+    let mut last_pct: u64 = 0;
+    let tray_for_progress = tray.clone();
+    let result = update
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk as u64;
+                if let (Some(total), Some(t)) = (total, &tray_for_progress) {
+                    if total > 0 {
+                        let pct = downloaded * 100 / total;
+                        if pct >= last_pct + 5 || pct == 100 {
+                            last_pct = pct;
+                            let _ = t.set_tooltip(Some(format!("Đang tải bản cập nhật... {pct}%")));
+                        }
+                    }
+                }
+            },
+            || {},
+        )
+        .await;
+
+    if let Some(t) = &tray { let _ = t.set_tooltip(Some("Discord Bot Dashboard")); }
+    if let Err(e) = result {
+        update_failed(app, "Tải / cài bản cập nhật thất bại", &e.to_string());
+        return;
+    }
+    // Windows: bộ cài đã chạy và app thường đã tự thoát trước dòng này; các hệ khác thì khởi động lại tại đây.
+    app.restart();
 }
 
 /// Địa chỉ file latest.json do GitHub Actions tạo ra mỗi lần phát hành bản mới.
@@ -455,6 +527,12 @@ pub fn run() {
             {
                 if !cfg!(debug_assertions) {
                     check_for_updates(app.handle().clone(), false);
+                    // App nằm ở khay chạy nền nhiều ngày nên "kiểm tra lúc mở app" không đủ: kiểm tra lại mỗi 4 giờ.
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || loop {
+                        std::thread::sleep(std::time::Duration::from_secs(4 * 3600));
+                        check_for_updates(handle.clone(), false);
+                    });
                 }
             }
 
