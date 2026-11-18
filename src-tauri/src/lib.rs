@@ -51,16 +51,32 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-/// Biểu tượng ở khay hệ thống: bấm trái = mở lại cửa sổ, bấm phải = menu. Chỉ "Thoát hẳn" mới tắt app (và nhạc).
+/// Biểu tượng ở khay hệ thống (giống Discord): bấm trái = mở lại cửa sổ, bấm phải = menu
+/// (Dashboard / Kiểm tra cập nhật... / Web / Thoát Dashboard). Chỉ "Thoát Dashboard" mới tắt app (và nhạc).
 #[cfg(desktop)]
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     use tauri::image::Image;
-    use tauri::menu::{MenuBuilder, MenuItemBuilder};
+    use tauri::menu::{IconMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-    let open = MenuItemBuilder::with_id("open", "Mở Dashboard").build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "Thoát hẳn (tắt cả nhạc)").build(app)?;
-    let menu = MenuBuilder::new(app).items(&[&open, &quit]).build()?;
+    // Dòng đầu: logo + tên app, chữ xám (không bấm được) - giống dòng "Discord" ở menu khay của Discord.
+    let title = IconMenuItemBuilder::with_id("title", "Dashboard")
+        .icon(Image::from_bytes(include_bytes!("../icons/32x32.png"))?)
+        .enabled(false)
+        .build(app)?;
+    let check = MenuItemBuilder::with_id("check_update", "Kiểm tra cập nhật...").build(app)?;
+    let web = MenuItemBuilder::with_id("web", format!("Web ({DASHBOARD_HOST})")).build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Thoát Dashboard").build(app)?;
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    let menu = MenuBuilder::new(app)
+        .item(&title)
+        .item(&sep1)
+        .item(&check)
+        .item(&web)
+        .item(&sep2)
+        .item(&quit)
+        .build()?;
 
     TrayIconBuilder::with_id("main")
         .icon(Image::from_bytes(include_bytes!("../icons/32x32.png"))?)
@@ -68,7 +84,12 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "open" => show_main_window(app),
+            "check_update" => check_for_updates(app.clone(), true),
+            "web" => {
+                if let Ok(url) = tauri::Url::parse(&format!("https://{DASHBOARD_HOST}")) {
+                    open_external(app, &url);
+                }
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -171,10 +192,12 @@ fn open_external(app: &tauri::AppHandle, url: &tauri::Url) {
     });
 }
 
-/// Kiểm tra bản mới khi mở app; nếu có thì hỏi người dùng rồi tải và cài (chỉ máy tính;
+/// Kiểm tra bản mới; nếu có thì hỏi người dùng rồi tải và cài (chỉ máy tính;
 /// bản Android xem check_for_updates_mobile).
+/// `manual` = bấm "Kiểm tra cập nhật..." ở khay: khi không có bản mới hoặc bị lỗi thì báo lại cho người dùng
+/// (lúc tự kiểm tra khi mở app thì im lặng).
 #[cfg(desktop)]
-fn check_for_updates(app: tauri::AppHandle) {
+fn check_for_updates(app: tauri::AppHandle, manual: bool) {
     tauri::async_runtime::spawn(async move {
         let updater = match app.updater() {
             Ok(u) => u,
@@ -185,9 +208,28 @@ fn check_for_updates(app: tauri::AppHandle) {
         };
         let update = match updater.check().await {
             Ok(Some(u)) => u,
-            Ok(None) => return,
+            Ok(None) => {
+                if manual {
+                    let _ = app
+                        .dialog()
+                        .message(format!(
+                            "Bạn đang dùng phiên bản mới nhất ({}).",
+                            app.package_info().version
+                        ))
+                        .title("Cập nhật ứng dụng")
+                        .blocking_show();
+                }
+                return;
+            }
             Err(e) => {
                 eprintln!("Không kiểm tra được cập nhật: {e}");
+                if manual {
+                    let _ = app
+                        .dialog()
+                        .message("Không kiểm tra được bản cập nhật. Kiểm tra kết nối mạng rồi thử lại.")
+                        .title("Cập nhật ứng dụng")
+                        .blocking_show();
+                }
                 return;
             }
         };
@@ -412,7 +454,7 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 if !cfg!(debug_assertions) {
-                    check_for_updates(app.handle().clone());
+                    check_for_updates(app.handle().clone(), false);
                 }
             }
 
