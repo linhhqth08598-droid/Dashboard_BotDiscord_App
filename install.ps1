@@ -8,7 +8,7 @@ Write-Host "==================================================" -ForegroundColor
 Write-Host ""
 
 Write-Host "[1/3] Dang kiem tra phien ban moi nhat..." -ForegroundColor Yellow
-$ApiUrl = "https://github.com" + $Repo + "/releases/latest"
+$ApiUrl = "https://api.github.com/repos/linhhqth08598-droid/Dashboard_BotDiscord_App/releases/latest"
 $Release = Invoke-RestMethod -Uri $ApiUrl
 $Asset = $Release.assets | Where-Object { $_.name -like "*x64-setup.exe" } | Select-Object -First 1
 
