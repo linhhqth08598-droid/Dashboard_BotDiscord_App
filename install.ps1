@@ -8,7 +8,8 @@ Write-Host "==================================================" -ForegroundColor
 Write-Host ""
 
 Write-Host "[1/3] Dang kiem tra phien ban moi nhat..." -ForegroundColor Yellow
-$Release = Invoke-RestMethod -Uri "https://github.com"
+$ApiUrl = "https://github.com" + $Repo + "/releases/latest"
+$Release = Invoke-RestMethod -Uri $ApiUrl
 $Asset = $Release.assets | Where-Object { $_.name -like "*x64-setup.exe" } | Select-Object -First 1
 
 if (-not $Asset) {

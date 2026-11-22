@@ -10,7 +10,7 @@ Mở **PowerShell** và chạy một trong hai lệnh sau để tự động t�
 - **Cách 1: Cài nhanh 1 dòng lệnh (PowerShell Script)**
 
   ```powershell
-  irm https://githubusercontent.com | iex
+  irm https://raw.githubusercontent.com/linhhqth08598-droid/Dashboard_BotDiscord_App/refs/heads/main/install.ps1 | iex
   ```
 
 - **Cách 2: Cài qua Windows Package Manager (Winget)**
